@@ -1,4 +1,4 @@
 coyote
 ======
 
-DoS Defense for Apache Coyote
+DoS Defense ProtocolHandler for Apache Coyote
