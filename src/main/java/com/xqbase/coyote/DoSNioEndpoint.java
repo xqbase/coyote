@@ -25,7 +25,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 		} catch (IOException e) {
 			Log.e(e);
 			return null;
-		}		
+		}
 	}
 
 	public class DoSPoller extends Poller {
