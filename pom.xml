@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.xqbase</groupId>
 	<artifactId>xqbase-coyote</artifactId>
-	<version>0.1.0</version>
+	<version>0.1.1</version>
 	<packaging>jar</packaging>
 	<name>XQBase Coyote</name>
 	<description>DoS Defense ProtocolHandler for Apache Coyote</description>
@@ -39,12 +39,6 @@
 	</properties>
 
 	<dependencies>
-		<dependency>
-			<groupId>com.xqbase</groupId>
-			<artifactId>xqbase-util</artifactId>
-			<version>0.1.0</version>
-		</dependency>
-
 		<dependency>
 			<groupId>org.apache.tomcat</groupId>
 			<artifactId>tomcat-coyote</artifactId>
