@@ -1,4 +1,4 @@
-package com.xqbase.util.concurrent;
+package com.xqbase.coyote.util.concurrent;
 
 import java.util.concurrent.atomic.AtomicInteger;
 

@@ -1,4 +1,4 @@
-package com.xqbase.util;
+package com.xqbase.coyote.util;
 
 public class Numbers {
 	public static int minMax(int min, int mid, int max) {

@@ -1,4 +1,4 @@
-package com.xqbase.util;
+package com.xqbase.coyote.util;
 
 import java.io.File;
 import java.io.FileInputStream;

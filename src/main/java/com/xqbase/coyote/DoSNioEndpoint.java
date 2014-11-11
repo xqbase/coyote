@@ -9,21 +9,34 @@ import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
+import org.apache.tomcat.util.collections.SynchronizedStack;
 import org.apache.tomcat.util.net.NioEndpoint;
 import org.apache.tomcat.util.net.SocketStatus;
 
-import com.xqbase.util.Conf;
-import com.xqbase.util.Log;
-import com.xqbase.util.Numbers;
-import com.xqbase.util.concurrent.Count;
-import com.xqbase.util.concurrent.SimpleCountMap;
+import com.xqbase.coyote.util.Conf;
+import com.xqbase.coyote.util.Log;
+import com.xqbase.coyote.util.Numbers;
+import com.xqbase.coyote.util.concurrent.Count;
+import com.xqbase.coyote.util.concurrent.SimpleCountMap;
 
 public class DoSNioEndpoint extends NioEndpoint {
+	private static Field getField(String name) {
+		try {
+			Field field = NioEndpoint.class.getDeclaredField(name);
+			field.setAccessible(true);
+			return field;
+		} catch (ReflectiveOperationException e) {
+			Log.w(e.getMessage());
+			return null;
+		}
+	}
+
 	static String getRemoteAddr(SocketChannel socket) {
 		try {
-			return ((InetSocketAddress) socket.getRemoteAddress()).getAddress().getHostAddress();
+			return ((InetSocketAddress) socket.getRemoteAddress()).
+					getAddress().getHostAddress();
 		} catch (IOException e) {
-			Log.e(e);
+			Log.w(e.getMessage());
 			return null;
 		}
 	}
@@ -85,16 +98,12 @@ public class DoSNioEndpoint extends NioEndpoint {
 
 	private static int startCount = 0;
 	private static Logger logger;
-	private static Field pollersField;
-
-	static {
-		try {
-			pollersField = NioEndpoint.class.getDeclaredField("pollers");
-			pollersField.setAccessible(true);
-		} catch (ReflectiveOperationException e) {
-			throw new RuntimeException(e);
-		}
-	}
+	private static Field pollersField = getField("pollers"),
+	// Available until Tomcat 8.0.9
+			processorCacheField = getField("processorCache"),
+			keyCacheField = getField("keyCache"),
+			eventCacheField = getField("eventCache"),
+			nioChannelsField = getField("nioChannels");
 
 	@Override
     public void startInternal() throws Exception {
@@ -110,15 +119,36 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}
 
 		Properties p = Conf.load("DoS");
-		period = Numbers.parseInt(p.getProperty("period")) * 1000;
-		requests = Numbers.parseInt(p.getProperty("requests"));
-		connections = Numbers.parseInt(p.getProperty("connections"));
+		period = Numbers.parseInt(p.getProperty("period"), 60) * 1000;
+		requests = Numbers.parseInt(p.getProperty("requests"), 300);
+		connections = Numbers.parseInt(p.getProperty("connections"), 60);
 		connectionsMap.clear();
 
 		running = true;
 		paused = false;
 
-		// Create worker collection
+		if (processorCacheField != null) {
+			processorCacheField.set(this,
+					new SynchronizedStack<>(SynchronizedStack.DEFAULT_SIZE,
+					socketProperties.getProcessorCache()));
+		}
+		if (keyCacheField != null) {
+			keyCacheField.set(this,
+					new SynchronizedStack<>(SynchronizedStack.DEFAULT_SIZE,
+					socketProperties.getKeyCache()));
+		}
+		if (eventCacheField != null) {
+			eventCacheField.set(this,
+					new SynchronizedStack<>(SynchronizedStack.DEFAULT_SIZE,
+					socketProperties.getEventCache()));
+		}
+		if (nioChannelsField != null) {
+			nioChannelsField.set(this,
+					new SynchronizedStack<>(SynchronizedStack.DEFAULT_SIZE,
+					socketProperties.getBufferPool()));
+		}
+
+        // Create worker collection
 		if (getExecutor() == null ) {
 			createExecutor();
 		}
@@ -130,7 +160,8 @@ public class DoSNioEndpoint extends NioEndpoint {
 		pollersField.set(this, pollers);
 		for (int i = 0; i < pollers.length; i ++) {
 			pollers[i] = new DoSPoller();
-			Thread pollerThread = new Thread(pollers[i], getName() + "-ClientPoller-" + i);
+			Thread pollerThread = new Thread(pollers[i],
+					getName() + "-ClientPoller-" + i);
 			pollerThread.setPriority(threadPriority);
 			pollerThread.setDaemon(true);
 			pollerThread.start();

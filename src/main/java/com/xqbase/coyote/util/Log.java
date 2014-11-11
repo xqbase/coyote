@@ -1,4 +1,4 @@
-package com.xqbase.util;
+package com.xqbase.coyote.util;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
