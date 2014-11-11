@@ -99,7 +99,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 	private static int startCount = 0;
 	private static Logger logger;
 	private static Field pollersField = getField("pollers"),
-	// Available until Tomcat 8.0.9
+			// Available until Tomcat 8.0.9
 			processorCacheField = getField("processorCache"),
 			keyCacheField = getField("keyCache"),
 			eventCacheField = getField("eventCache"),
