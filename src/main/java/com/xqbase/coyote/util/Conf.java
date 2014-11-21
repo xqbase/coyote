@@ -3,19 +3,12 @@ package com.xqbase.coyote.util;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.management.ManagementFactory;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Enumeration;
-import java.util.HashSet;
 import java.util.Properties;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.FileHandler;
 import java.util.logging.Handler;
@@ -157,80 +150,5 @@ public class Conf {
 			load(p, getConfPath(name, confDir));
 		}
 		return p;
-	}
-
-	public static void store(String name, Properties p) {
-		try (FileOutputStream out = new FileOutputStream(getConfPath(name, confDir))) {
-			p.store(out, null);
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		}
-	}
-
-	private static final HashSet<String> TRUE_VALUES =
-			new HashSet<>(Arrays.asList("true", "yes", "on", "enable", "enabled"));
-	private static final HashSet<String> FALSE_VALUES =
-			new HashSet<>(Arrays.asList("false", "no", "off", "disable", "disabled"));
-
-	public static boolean getBoolean(String value, boolean defaultValue) {
-		if (value == null) {
-			return defaultValue;
-		}
-		String value_ = value.trim().toLowerCase();
-		return defaultValue ? !FALSE_VALUES.contains(value_) : TRUE_VALUES.contains(value_);
-	}
-
-	private static void search(ArrayList<String> classes, String root, String path) {
-		File folder = new File(root + path);
-		String[] list = folder.list();
-		if (list == null) {
-			return;
-		}
-		for (String file : folder.list()) {
-			if (new File(root + path + "/" + file).isDirectory()) {
-				search(classes, root, path + "/" + file);
-			} else if (file.endsWith(".class")) {
-				classes.add(path.replace('/', '.') + "." +
-						file.substring(0, file.length() - 6));
-			}
-		}
-	}
-
-	public static ArrayList<String> getClasses(String... packageNames) {
-		ArrayList<String> classes = new ArrayList<>();
-		for (String packageName : packageNames) {
-			String packagePath = packageName.replace('.', '/');
-			URL url = Conf.class.getResource("/" + packagePath);
-			if (url == null) {
-				return classes;
-			}
-			if (url.getProtocol().equals("jar")) {
-				String path = url.getPath();
-				int i = path.lastIndexOf('!');
-				if (i >= 0) {
-					path = path.substring(0, i);
-				}
-				try (JarFile jar = new JarFile(new File(new URL(path).toURI()))) {
-					Enumeration<JarEntry> e = jar.entries();
-					while (e.hasMoreElements()) {
-						path = e.nextElement().getName();
-						if (path.startsWith(packagePath) && path.endsWith(".class")) {
-							classes.add(path.substring(0, path.length() - 6).replace('/', '.'));
-						}
-					}
-				} catch (IOException | URISyntaxException e) {
-					throw new RuntimeException(e);
-				}
-			} else {
-				try {
-					String root = new File(url.toURI()).getPath();
-					root = root.substring(0, root.length() - packagePath.length());
-					search(classes, root, packagePath);
-				} catch (URISyntaxException e) {
-					throw new RuntimeException(e);
-				}
-			}
-		}
-		return classes;
 	}
 }
