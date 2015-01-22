@@ -46,7 +46,7 @@ public class Conf {
 	}
 
 	private static String getConfPath(String name, String confDir_) {
-		return confDir_ == null ? locate("conf/" + name + ".properties") :
+		return confDir_ == null ? getAbsolutePath("conf/" + name + ".properties") :
 				(confDir_.endsWith("/") ? confDir_ : confDir_ + "/") +
 				name + ".properties";
 	}
@@ -66,13 +66,13 @@ public class Conf {
 		return Conf.class;
 	}
 
-	public static synchronized void setRoot(String absolute) {
-		if (absolute != null) {
-			rootDir = new File(absolute).getAbsolutePath();
+	public static synchronized void chdir(String path) {
+		if (path != null) {
+			rootDir = new File(getAbsolutePath(path)).getAbsolutePath();
 		}
 	}
 
-	public static synchronized String locate(String path) {
+	public static synchronized String getAbsolutePath(String path) {
 		try {
 			if (rootDir == null) {
 				Class<?> parentClass = getParentClass();
@@ -114,7 +114,7 @@ public class Conf {
 		}
 		FileHandler handler;
 		try {
-			String logDir_ = logDir == null ? locate("logs") : logDir;
+			String logDir_ = logDir == null ? getAbsolutePath("logs") : logDir;
 			new File(logDir_).mkdirs();
 			String pattern = (logDir_.endsWith("/") ? logDir_ : logDir_ + "/") +
 					name + "%g.log";
