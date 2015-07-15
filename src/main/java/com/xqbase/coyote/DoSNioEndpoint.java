@@ -47,7 +47,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}
 
 		@Override
-		public void cancelledKey(SelectionKey key, SocketStatus status) {
+		public KeyAttachment cancelledKey(SelectionKey key, SocketStatus status) {
 			if (key != null) {
 				KeyAttachment ka = (KeyAttachment) key.attachment();
 				if (ka != null) {
@@ -60,7 +60,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 					}
 				}
 			}
-			super.cancelledKey(key, status);
+			return super.cancelledKey(key, status);
 		}
 	}
 
@@ -101,7 +101,6 @@ public class DoSNioEndpoint extends NioEndpoint {
 	private static Field pollersField = getField("pollers"),
 			// Available until Tomcat 8.0.9
 			processorCacheField = getField("processorCache"),
-			keyCacheField = getField("keyCache"),
 			eventCacheField = getField("eventCache"),
 			nioChannelsField = getField("nioChannels");
 
@@ -131,11 +130,6 @@ public class DoSNioEndpoint extends NioEndpoint {
 			processorCacheField.set(this,
 					new SynchronizedStack<>(SynchronizedStack.DEFAULT_SIZE,
 					socketProperties.getProcessorCache()));
-		}
-		if (keyCacheField != null) {
-			keyCacheField.set(this,
-					new SynchronizedStack<>(SynchronizedStack.DEFAULT_SIZE,
-					socketProperties.getKeyCache()));
 		}
 		if (eventCacheField != null) {
 			eventCacheField.set(this,
