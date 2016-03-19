@@ -26,7 +26,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 
 	public DoSHttp11NioProtocol() {
 		endpoint = new DoSNioEndpoint();
-		((DoSNioEndpoint) endpoint).setHandler((NioEndpoint.Handler) getHandler());
+		((NioEndpoint) endpoint).setHandler((NioEndpoint.Handler) getHandler());
 		setSoLinger(Constants.DEFAULT_CONNECTION_LINGER);
 		setSoTimeout(Constants.DEFAULT_CONNECTION_TIMEOUT);
 		setTcpNoDelay(Constants.DEFAULT_TCP_NO_DELAY);
@@ -52,9 +52,9 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			log.error("Unable to Initialize DoS Parameters " +
 					"\"period\", \"requests\" or \"connections\"", e);
 		}
-		log.info("DoSHttp11NioProtocol Started with period=" + dos.period +
-				"/requests=" + dos.requests + "/connections=" +
-				dos.connections + " on port " + port);
+		log.info("DoSHttp11NioProtocol Started with period=" +
+				dos.period / 1000 + "/requests=" + dos.requests +
+				"/connections=" + dos.connections + " on port " + port);
 	}
 
     @Override
