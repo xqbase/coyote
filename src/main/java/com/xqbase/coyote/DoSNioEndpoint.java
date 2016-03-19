@@ -17,9 +17,9 @@ import com.xqbase.coyote.util.concurrent.Count;
 import com.xqbase.coyote.util.concurrent.SimpleCountMap;
 
 public class DoSNioEndpoint extends NioEndpoint {
-    static Log log = LogFactory.getLog(DoSNioEndpoint.class);
+	static Log log = LogFactory.getLog(DoSNioEndpoint.class);
 
-    private static Field getField(String name) {
+	private static Field getField(String name) {
 		try {
 			Field field = NioEndpoint.class.getDeclaredField(name);
 			field.setAccessible(true);
@@ -102,7 +102,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 			nioChannelsField = getField("nioChannels");
 
 	@Override
-    public void startInternal() throws Exception {
+	public void startInternal() throws Exception {
 		if (running) {
 			return;
 		}
@@ -126,7 +126,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 					socketProperties.getBufferPool()));
 		}
 
-        // Create worker collection
+		// Create worker collection
 		if (getExecutor() == null ) {
 			createExecutor();
 		}
@@ -146,5 +146,5 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}
 
 		startAcceptorThreads();
-    }
+	}
 }

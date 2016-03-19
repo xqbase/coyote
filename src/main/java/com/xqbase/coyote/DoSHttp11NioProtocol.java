@@ -57,7 +57,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 				"/connections=" + dos.connections + " on port " + port);
 	}
 
-    @Override
+	@Override
 	public void stop() throws Exception {
 		log.info("DoSHttp11NioProtocol Stopped");
 		super.stop();
