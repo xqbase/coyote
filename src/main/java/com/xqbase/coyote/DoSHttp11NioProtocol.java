@@ -11,7 +11,7 @@ import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.net.NioEndpoint;
 
 public class DoSHttp11NioProtocol extends Http11NioProtocol {
-	private static Log log = LogFactory.getLog(DoSNioEndpoint.class);
+	private static Log log = LogFactory.getLog(DoSHttp11NioProtocol.class);
 
 	private static int parseInt(String s, int i) {
 		if (s == null) {

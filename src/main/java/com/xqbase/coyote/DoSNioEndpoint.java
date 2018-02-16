@@ -35,8 +35,8 @@ public class DoSNioEndpoint extends NioEndpoint {
 			return ((InetSocketAddress) socket.getRemoteAddress()).
 					getAddress().getHostAddress();
 		} catch (IOException e) {
-			System.err.println(e.getMessage());
-			return null;
+			log.warn(e.getMessage());
+			return "";
 		}
 	}
 
