@@ -14,7 +14,7 @@ import org.apache.tomcat.util.net.NioEndpoint;
 import org.apache.tomcat.util.net.SocketStatus;
 
 import com.xqbase.coyote.util.concurrent.Count;
-import com.xqbase.coyote.util.concurrent.SimpleCountMap;
+import com.xqbase.coyote.util.concurrent.CountMap;
 
 public class DoSNioEndpoint extends NioEndpoint {
 	static Log log = LogFactory.getLog(DoSNioEndpoint.class);
@@ -89,10 +89,10 @@ public class DoSNioEndpoint extends NioEndpoint {
 		return super.setSocketOptions(socket);
 	}
 
-	SimpleCountMap<String> connectionsMap = new SimpleCountMap<>();
+	CountMap<String> connectionsMap = new CountMap<>();
 	int period = 60, requests = 300, connections = 60;
 
-	private SimpleCountMap<String> requestsMap = new SimpleCountMap<>();
+	private CountMap<String> requestsMap = new CountMap<>();
 	private AtomicLong accessed = new AtomicLong(System.currentTimeMillis());
 
 	private static Field pollersField = getField("pollers"),
