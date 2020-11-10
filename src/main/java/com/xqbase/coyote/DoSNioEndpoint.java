@@ -5,7 +5,17 @@ import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+
+import javax.net.ssl.SNIMatcher;
+import javax.net.ssl.SNIServerName;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLParameters;
 
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
@@ -30,16 +40,6 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}
 	}
 
-	static String getRemoteAddr(SocketChannel socket) {
-		try {
-			return ((InetSocketAddress) socket.getRemoteAddress()).
-					getAddress().getHostAddress();
-		} catch (IOException e) {
-			log.warn(e.getMessage());
-			return "";
-		}
-	}
-
 	public class DoSPoller extends Poller {
 		public DoSPoller() throws IOException {
 			super();
@@ -50,17 +50,27 @@ public class DoSNioEndpoint extends NioEndpoint {
 			if (key != null) {
 				KeyAttachment ka = (KeyAttachment) key.attachment();
 				if (ka != null) {
-					String ip = getRemoteAddr(ka.getSocket().getIOChannel());
-					Count count = connectionsMap.get(ip);
-					if (count == null) {
-						log.warn("Connection Count Error from " + ip);
-					} else {
-						connectionsMap.release(ip, count);
+					try {
+						countDown((InetSocketAddress)
+								ka.getSocket().getIOChannel().getRemoteAddress());
+					} catch (IOException e) {
+						log.error(e.getMessage(), e);
 					}
 				}
 			}
 			return super.cancelledKey(key, status);
 		}
+	}
+
+	void countDown(InetSocketAddress inetSocketAddress) {
+		String ip = inetSocketAddress.getAddress().getHostAddress();
+		Count count = connectionsMap.get(ip);
+		if (count == null) {
+			log.warn("Connection Count Error from " + ip);
+		} else {
+			connectionsMap.release(ip, count);
+		}
+		addressMap.remove(ip + ":" + inetSocketAddress.getPort());
 	}
 
 	@Override
@@ -72,7 +82,15 @@ public class DoSNioEndpoint extends NioEndpoint {
 			requestsMap.clear();
 		}
 
-		String ip = getRemoteAddr(socket);
+		InetSocketAddress inetSocketAddress;
+		try {
+			inetSocketAddress = (InetSocketAddress) socket.getRemoteAddress();
+		} catch (IOException e) {
+			log.error(e.getMessage(), e);
+			return false;
+		}
+
+		String ip = inetSocketAddress.getAddress().getHostAddress();
 		Count count = requestsMap.acquire(ip);
 		if (count.get() > requests) {
 			log.info("DoS Attack from " + ip + ", requests = " + count);
@@ -86,11 +104,16 @@ public class DoSNioEndpoint extends NioEndpoint {
 			return false;
 		}
 
+		address.set(ip + ":" + inetSocketAddress.getPort());
 		return super.setSocketOptions(socket);
 	}
 
 	CountMap<String> connectionsMap = new CountMap<>();
 	int period = 60, requests = 300, connections = 60;
+	ThreadLocal<String> address = new ThreadLocal<>();
+	Map<String, Object[]> addressMap = new ConcurrentHashMap<>();
+	Map<String, Object[]> hostnameMap = new HashMap<>();
+	SSLContext sslContext = null;
 
 	private CountMap<String> requestsMap = new CountMap<>();
 	private AtomicLong accessed = new AtomicLong(System.currentTimeMillis());
@@ -99,7 +122,8 @@ public class DoSNioEndpoint extends NioEndpoint {
 			// Available until Tomcat 8.0.9
 			processorCacheField = getField("processorCache"),
 			eventCacheField = getField("eventCache"),
-			nioChannelsField = getField("nioChannels");
+			nioChannelsField = getField("nioChannels"),
+			enabledProtocolsField = getField("enabledProtocols");
 
 	@Override
 	public void startInternal() throws Exception {
@@ -127,7 +151,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}
 
 		// Create worker collection
-		if (getExecutor() == null ) {
+		if (getExecutor() == null) {
 			createExecutor();
 		}
 
@@ -146,5 +170,39 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}
 
 		startAcceptorThreads();
+	}
+
+	@Override
+	protected SSLEngine createSSLEngine() {
+		if (sslContext == null) {
+			return super.createSSLEngine();
+		}
+		SSLEngine engine = sslContext.createSSLEngine();
+		engine.setUseClientMode(false);
+		SSLParameters sslp = new SSLParameters();
+		sslp.setNeedClientAuth(false);
+		sslp.setWantClientAuth(false);
+		sslp.setCipherSuites(getCiphersUsed());
+		try {
+			sslp.setProtocols((String[]) enabledProtocolsField.get(this));
+		} catch (ReflectiveOperationException e) {
+			throw new RuntimeException(e);
+		}
+		String address_ = address.get();
+		sslp.setSNIMatchers(Collections.singleton(new SNIMatcher(0) {
+			@Override
+			public boolean matches(SNIServerName serverName) {
+				Object[] pair = hostnameMap.
+						get(new String(serverName.getEncoded()));
+				if (pair == null || pair[0] == null || pair[1] == null) {
+					return false;
+				}
+				addressMap.put(address_, pair);
+				return true;
+			}
+		}));
+		engine.setSSLParameters(sslp);
+		configureUseServerCipherSuitesOrder(engine);
+        return engine;
 	}
 }

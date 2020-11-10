@@ -11,12 +11,20 @@ import com.xqbase.util.Log;
 public class Startup {
 	public static void main(String[] args) {
 		Connector connector = new Connector(DoSHttp11NioProtocol.class.getName());
-		connector.setPort(80);
+		connector.setPort(443);
+		connector.setScheme("https");
+		connector.setSecure(true);
+		connector.setProperty("SSLEnabled", "true");
+		connector.setProperty("sslProtocol", "TLS");
 		connector.setProperty("dosPeriod", "60");
 		connector.setProperty("dosRequests", "300");
 		connector.setProperty("dosConnections", "60");
+		connector.setProperty("keystorePath", "/etc/pki/tomcat");
+		connector.setProperty("keystoreType", "PKCS12");
+		connector.setProperty("keystoreFile",
+				Conf.getAbsolutePath("test-classes/localhost.pfx"));
 		Tomcat tomcat = new Tomcat();
-		tomcat.setPort(80);
+		tomcat.setPort(443);
 		tomcat.getService().addConnector(connector);
 		tomcat.setConnector(connector);
 		try {
