@@ -63,6 +63,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 	}
 
 	void countDown(InetSocketAddress inetSocketAddress) {
+		// Step 3: Disconnect
 		String ip = inetSocketAddress.getAddress().getHostAddress();
 		Count count = connectionsMap.get(ip);
 		if (count == null) {
@@ -70,7 +71,10 @@ public class DoSNioEndpoint extends NioEndpoint {
 		} else {
 			connectionsMap.release(ip, count);
 		}
-		addressMap.remove(ip + ":" + inetSocketAddress.getPort());
+		SSLEngine ssle = addressMap.remove(inetSocketAddress);
+		if (ssle != null) {
+			engineMap.remove(ssle);
+		}
 	}
 
 	@Override
@@ -104,14 +108,15 @@ public class DoSNioEndpoint extends NioEndpoint {
 			return false;
 		}
 
-		address.set(ip + ":" + inetSocketAddress.getPort());
+		address.set(inetSocketAddress);
 		return super.setSocketOptions(socket);
 	}
 
 	CountMap<String> connectionsMap = new CountMap<>();
 	int period = 60, requests = 300, connections = 60;
-	ThreadLocal<String> address = new ThreadLocal<>();
-	Map<String, Object[]> addressMap = new ConcurrentHashMap<>();
+	ThreadLocal<InetSocketAddress> address = new ThreadLocal<>();
+	Map<InetSocketAddress, SSLEngine> addressMap = new ConcurrentHashMap<>();
+	Map<SSLEngine, Object[]> engineMap = new ConcurrentHashMap<>();
 	Map<String, Object[]> hostnameMap = new HashMap<>();
 	SSLContext sslContext = null;
 
@@ -188,16 +193,23 @@ public class DoSNioEndpoint extends NioEndpoint {
 		} catch (ReflectiveOperationException e) {
 			throw new RuntimeException(e);
 		}
-		String address_ = address.get();
+		InetSocketAddress address_ = address.get();
 		sslp.setSNIMatchers(Collections.singleton(new SNIMatcher(0) {
 			@Override
 			public boolean matches(SNIServerName serverName) {
+				// Step 1: SNI Matching (Check Client Hello)
 				Object[] pair = hostnameMap.
 						get(new String(serverName.getEncoded()));
 				if (pair == null || pair[0] == null || pair[1] == null) {
 					return false;
 				}
-				addressMap.put(address_, pair);
+				SSLEngine oldEngine = addressMap.put(address_, engine);
+				if (oldEngine != null) {
+					log.info("Connection reused: " + engine.getSession() +
+							" -> " + oldEngine.getSession());
+					engineMap.remove(oldEngine);
+				}
+				engineMap.put(engine, pair);
 				return true;
 			}
 		}));

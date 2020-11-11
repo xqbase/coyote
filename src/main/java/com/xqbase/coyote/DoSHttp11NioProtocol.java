@@ -46,7 +46,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		}
 	};
 
-	private static Log log = LogFactory.getLog(DoSHttp11NioProtocol.class);
+	static Log log = LogFactory.getLog(DoSHttp11NioProtocol.class);
 
 	private static int parseInt(String s, int i) {
 		if (s == null) {
@@ -108,33 +108,48 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		if (!keystoreDir.isDirectory()) {
 			return;
 		}
+		log.info("keystorePath = " + keystorePath);
 		KeyFactory kf = KeyFactory.getInstance("RSA");
 		CertificateFactory cf = CertificateFactory.getInstance("X509");
 		for (String filename : keystoreDir.list()) {
-			// Generate PKCS#8 key from PEM:
-			// openssl pkcs8 -in localhost.pem -nocrypt -outform der -out localhost.pkcs8.key
-			if (filename.endsWith(".pem")) {
+			if (filename.length() < 4) {
+				continue;
+			}
+			switch (filename.substring(filename.length() - 4).toLowerCase()) {
+			case ".key":
 				StringBuilder sb = new StringBuilder();
 				try (BufferedReader in = new BufferedReader(new
 						FileReader(keystorePath + File.separator + filename))) {
 					String line;
 					while ((line = in.readLine()) != null) {
+						// TODO Skip "Bag Attributes" PEM header
+						// TODO Support -----BEGIN RSA PPRIVATE KEY-----
 						if (!line.equals("-----BEGIN PRIVATE KEY-----") &&
 								!line.equals("-----END PRIVATE KEY-----")) {
 							sb.append(line);
 						}
 					}
+					getPair(dos.hostnameMap, filename)[0] = kf.
+							generatePrivate(new PKCS8EncodedKeySpec(Base64.
+							getDecoder().decode(sb.toString())));
+				} catch (Exception e) {
+					log.error("Failed to read key file " + filename, e);
 				}
-				getPair(dos.hostnameMap, filename)[0] = kf.
-						generatePrivate(new PKCS8EncodedKeySpec(Base64.
-						getDecoder().decode(sb.toString())));
-			}
-			if (filename.endsWith(".crt")) {
+				break;
+			case ".cer":
+			case ".crt":
+			case ".p7b":
+			case ".p7c":
+			case ".spc":
 				try (FileInputStream in = new FileInputStream(keystorePath +
 						File.separator + filename)) {
 					getPair(dos.hostnameMap, filename)[1] =
 							cf.generateCertificates(in).toArray(CERTIFICATES);
+				} catch (Exception e) {
+					log.error("Failed to read certificate file " + filename, e);
 				}
+				break;
+			default:
 			}
 		}
 		if (dos.hostnameMap.isEmpty()) {
@@ -147,12 +162,11 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			@Override
 			public String chooseEngineServerAlias(String keyType,
 					Principal[] issuers, SSLEngine ssle) {
+				// Step 2.1 Handshake: Key Type
 				if (!"RSA".equals(keyType)) {
 					return null;
 				}
-				// TODO use sessionId?
-				Object[] pair_ = dos.addressMap.get(ssle.getPeerHost() +
-						":" + ssle.getPeerPort());
+				Object[] pair_ = dos.engineMap.get(ssle);
 				if (pair_ == null) {
 					return null;
 				}
@@ -162,11 +176,13 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 
 			@Override
 			public PrivateKey getPrivateKey(String keyType) {
+				// Step 2.2 Handshake: Private Key, same thread as step 2.1
 				return (PrivateKey) pair.get()[0];
 			}
 
 			@Override
 			public X509Certificate[] getCertificateChain(String keyType) {
+				// Step 2.3 Handshake: Certificate Chain, same thread as step 2.1
 				return (X509Certificate[]) pair.get()[1];
 			}
 
