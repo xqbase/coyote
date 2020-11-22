@@ -118,6 +118,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 	Map<InetSocketAddress, SSLEngine> addressMap = new ConcurrentHashMap<>();
 	Map<SSLEngine, Object[]> engineMap = new ConcurrentHashMap<>();
 	Map<String, Object[]> hostnameMap = new HashMap<>();
+	String defaultHostname = null;
 	SSLContext sslContext = null;
 
 	private CountMap<String> requestsMap = new CountMap<>();
