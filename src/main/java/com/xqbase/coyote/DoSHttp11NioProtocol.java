@@ -100,7 +100,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 
 	private Object[] getPair(String filename) {
 		return dos.hostnameMap.computeIfAbsent(filename.substring(0,
-				filename.length() - 4), k -> new Object[] {null, null});
+				filename.length() - 4), k -> new Object[] {null, null, null});
 	}
 
 	private void generateCertificates(String filename) {
@@ -248,6 +248,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 							getPair(hostname)[0] = key;
 						}
 					}
+					// TODO set dos.hostnameMap
 				} catch (Exception e) {
 					log.error("Failed to read key file " + filename, e);
 				}
@@ -269,7 +270,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 				if (!"RSA".equals(keyType)) {
 					return null;
 				}
-				Object[] pair_ = dos.engineMap.get(ssle);
+				Object[] pair_ = (Object[]) ssle.getSession().getValue("_SNI_");
 				if (pair_ == null) {
 					return null;
 				}
