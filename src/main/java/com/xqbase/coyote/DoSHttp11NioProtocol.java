@@ -21,6 +21,8 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.TreeSet;
 
 import javax.net.ssl.SSLContext;
@@ -98,9 +100,9 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		setTcpNoDelay(Constants.DEFAULT_TCP_NO_DELAY);
 	}
 
-	private Object[] getPair(String filename) {
-		return dos.hostnameMap.computeIfAbsent(filename.substring(0,
-				filename.length() - 4), k -> new Object[] {null, null, null});
+	private Object[] getPair(String hostname) {
+		return dos.hostnameMap.computeIfAbsent(hostname,
+				k -> new Object[] {null, null, null});
 	}
 
 	private void generateCertificates(String filename) {
@@ -121,7 +123,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 					getSubjectX500Principal().getName()).getCommonName();
 			if (cn != null) {
 				hostnames.add(cn);
-				if (dos.defaultHostname != null) {
+				if (dos.defaultHostname == null) {
 					dos.defaultHostname = cn;
 				}
 			}
@@ -148,6 +150,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			}
 			for (String hostname : hostnames) {
 				Object[] pair = getPair(hostname);
+				// TODO Test Date
 				if (pair[2] == null || ((Date) pair[2]).before(cert.getNotAfter())) {
 					if (key != null) {
 						pair[0] = key;
@@ -162,21 +165,13 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 	}
 
 	@Override
-	public void start() throws Exception {
-		super.start();
+	public void init() throws Exception {
 		// Load DoS properties
 		dos = (DoSNioEndpoint) endpoint;
 		int port = 0;
-		Connector connector;
-		try {
-			Field field = CoyoteAdapter.class.getDeclaredField("connector");
-			field.setAccessible(true);
-			connector = (Connector) field.get(adapter);
-		} catch (ReflectiveOperationException e) {
-			log.error("Unable to Initialize DoS Parameters " +
-					"\"period\", \"requests\" or \"connections\"", e);
-			return;
-		}
+		Field field = CoyoteAdapter.class.getDeclaredField("connector");
+		field.setAccessible(true);
+		Connector connector = (Connector) field.get(adapter);
 		dos.period = parseInt((String) connector.
 				getProperty("dosPeriod"), 60) * 1000;
 		dos.requests = parseInt((String) connector.
@@ -184,12 +179,13 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		dos.connections = parseInt((String) connector.
 				getProperty("dosConnections"), 60);
 		port = connector.getPort();
-		log.info("DoSHttp11NioProtocol Started with period=" +
+		log.info("DoSHttp11NioProtocol Initialized with period=" +
 				dos.period / 1000 + "/requests=" + dos.requests +
 				"/connections=" + dos.connections + " on port " + port);
 		// Load SNI property "keystorePath"
 		String keystorePath = (String) connector.getProperty("keystorePath");
 		if (keystorePath == null) {
+			super.init();
 			return;
 		}
 		if (keystorePath.endsWith(File.separator)) {
@@ -197,6 +193,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		}
 		File keystoreDir = new File(keystorePath);
 		if (!keystoreDir.isDirectory()) {
+			super.init();
 			return;
 		}
 		log.info("keystorePath = " + keystorePath);
@@ -248,20 +245,30 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 							getPair(hostname)[0] = key;
 						}
 					}
-					// TODO set dos.hostnameMap
-				} catch (Exception e) {
+				} catch (GeneralSecurityException |
+						IOException | IllegalArgumentException e) {
 					log.error("Failed to read key file " + filename, e);
 				}
 				break;
 			default:
 			}
 		}
+		// Remove unpaired
+		Iterator<Map.Entry<String, Object[]>> hostnames =
+				dos.hostnameMap.entrySet().iterator();
+		while (hostnames.hasNext()) {
+			Object[] pair = hostnames.next().getValue();
+			if (pair[0] == null || pair[1] == null) {
+				hostnames.remove();
+			}
+		}
 		if (dos.hostnameMap.isEmpty()) {
+			super.init();
 			return;
 		}
-		dos.sslContext = SSLContext.getInstance("TLS");
-		dos.sslContext.init(new X509ExtendedKeyManager[] {new X509ExtendedKeyManager() {
-			private ThreadLocal<Object[]> pair = new ThreadLocal<>();
+		SSLContext sslContext = SSLContext.getInstance("TLS");
+		sslContext.init(new X509ExtendedKeyManager[] {new X509ExtendedKeyManager() {
+			private ThreadLocal<Object[]> pair_ = new ThreadLocal<>();
 
 			@Override
 			public String chooseEngineServerAlias(String keyType,
@@ -270,24 +277,25 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 				if (!"RSA".equals(keyType)) {
 					return null;
 				}
-				Object[] pair_ = (Object[]) ssle.getSession().getValue("_SNI_");
-				if (pair_ == null) {
+				Object[] pair = (Object[]) ssle.getSession().
+						getValue(DoSNioEndpoint.PAIR);
+				if (pair == null) {
 					return null;
 				}
-				pair.set(pair_);
+				pair_.set(pair);
 				return "RSA";
 			}
 
 			@Override
 			public PrivateKey getPrivateKey(String keyType) {
 				// Step 2.2 Handshake: Private Key, same thread as step 2.1
-				return (PrivateKey) pair.get()[0];
+				return (PrivateKey) pair_.get()[0];
 			}
 
 			@Override
 			public X509Certificate[] getCertificateChain(String keyType) {
 				// Step 2.3 Handshake: Certificate Chain, same thread as step 2.1
-				return (X509Certificate[]) pair.get()[1];
+				return (X509Certificate[]) pair_.get()[1];
 			}
 
 			@Override
@@ -312,20 +320,17 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 				throw new UnsupportedOperationException();
 			}
 		}}, DEFAULT_TRUST_MANAGERS, null);
-		// TODO set keystoreFile
-		String keystoreFile = (String) connector.getProperty("keystoreFile");
-		if (keystoreFile != null) {
-			return;
-		}
+		dos.setSSLContext(sslContext);
+		super.init();
 	}
 
 	@Override
-	public void stop() throws Exception {
+	public void destroy() {
+		super.destroy();
 		keyMap.clear();
 		hostnamesMap.clear();
 		dos.hostnameMap.clear();
 		dos.defaultHostname = null;
-		log.info("DoSHttp11NioProtocol Stopped");
-		super.stop();
+		log.info("DoSHttp11NioProtocol Destroyed");
 	}
 }

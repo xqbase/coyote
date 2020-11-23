@@ -7,7 +7,6 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.net.ssl.SNIMatcher;
@@ -21,12 +20,23 @@ import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.collections.SynchronizedStack;
 import org.apache.tomcat.util.net.NioEndpoint;
 import org.apache.tomcat.util.net.SocketStatus;
+import org.apache.tomcat.util.net.jsse.JSSESocketFactory;
 
 import com.xqbase.coyote.util.concurrent.Count;
 import com.xqbase.coyote.util.concurrent.CountMap;
 
 public class DoSNioEndpoint extends NioEndpoint {
+	static final String PAIR = DoSNioEndpoint.class.getName() + ".PAIR";
+
 	static Log log = LogFactory.getLog(DoSNioEndpoint.class);
+
+	private static Field pollersField = getField("pollers"),
+			// Available until Tomcat 8.0.9
+			processorCacheField = getField("processorCache"),
+			eventCacheField = getField("eventCache"),
+			nioChannelsField = getField("nioChannels"),
+			enabledCiphersField = getField("enabledCiphers"),
+			enabledProtocolsField = getField("enabledProtocols");
 
 	private static Field getField(String name) {
 		try {
@@ -47,10 +57,6 @@ public class DoSNioEndpoint extends NioEndpoint {
 			log.warn(e.getMessage());
 			return "";
 		}
-	}
-
-	static boolean invalid(Object[] pair) {
-		return pair == null || pair[0] == null || pair[1] == null;
 	}
 
 	public class DoSPoller extends Poller {
@@ -104,19 +110,26 @@ public class DoSNioEndpoint extends NioEndpoint {
 
 	CountMap<String> connectionsMap = new CountMap<>();
 	int period = 60, requests = 300, connections = 60;
-	Map<String, Object[]> hostnameMap = new HashMap<>();
+	HashMap<String, Object[]> hostnameMap = new HashMap<>();
 	String defaultHostname = null;
-	SSLContext sslContext = null;
 
 	private CountMap<String> requestsMap = new CountMap<>();
 	private AtomicLong accessed = new AtomicLong(System.currentTimeMillis());
 
-	private static Field pollersField = getField("pollers"),
-			// Available until Tomcat 8.0.9
-			processorCacheField = getField("processorCache"),
-			eventCacheField = getField("eventCache"),
-			nioChannelsField = getField("nioChannels"),
-			enabledProtocolsField = getField("enabledProtocols");
+	@Override
+	public void bind() throws Exception {
+		SSLContext sslContext = getSSLContext();
+		if (!isSSLEnabled() || sslContext == null) {
+			super.bind();
+			return;
+		}
+		setSSLEnabled(false);
+		super.bind();
+		setSSLEnabled(true);
+		JSSESocketFactory sslUtil = new JSSESocketFactory(this);
+		enabledCiphersField.set(this, sslUtil.getEnableableCiphers(sslContext));
+		enabledProtocolsField.set(this, sslUtil.getEnableableProtocols(sslContext));
+	}
 
 	@Override
 	public void startInternal() throws Exception {
@@ -167,6 +180,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 
 	@Override
 	protected SSLEngine createSSLEngine() {
+		SSLContext sslContext = getSSLContext();
 		if (sslContext == null) {
 			return super.createSSLEngine();
 		}
@@ -187,17 +201,19 @@ public class DoSNioEndpoint extends NioEndpoint {
 				// Step 1: SNI Matching (Check Client Hello)
 				String hostname = new String(serverName.getEncoded());
 				Object[] pair = hostnameMap.get(hostname);
-				if (invalid(pair)) {
+				if (pair == null) {
 					int dot = hostname.indexOf('.');
-					if (dot < 0) {
-						return false;
+					if (dot >= 0) {
+						pair = hostnameMap.get("*" + hostname.substring(dot));
 					}
-					pair = hostnameMap.get("*" + hostname.substring(dot));
-					if (invalid(pair)) {
-						return false;
+					if (pair == null) {
+						pair = hostnameMap.get(defaultHostname);
+						if (pair == null) {
+							return false;
+						}
 					}
 				}
-				engine.getSession().putValue("_SNI_", pair);
+				engine.getSession().putValue(PAIR, pair);
 				return true;
 			}
 		}));
