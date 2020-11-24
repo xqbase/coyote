@@ -22,6 +22,9 @@ public class Startup {
 		connector.setProperty("dosConnections", "60");
 		connector.setProperty("keystorePath",
 				Conf.getAbsolutePath("../src/test/etc/pki/tomcat"));
+//		connector.setProperty("keystoreType", "PKCS12");
+//		connector.setProperty("keystoreFile",
+//				Conf.getAbsolutePath("../src/test/etc/pki/tomcat/localhost.pfx"));
 		Tomcat tomcat = new Tomcat();
 		tomcat.setPort(443);
 		tomcat.getService().addConnector(connector);

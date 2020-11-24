@@ -180,11 +180,10 @@ public class DoSNioEndpoint extends NioEndpoint {
 
 	@Override
 	protected SSLEngine createSSLEngine() {
-		SSLContext sslContext = getSSLContext();
-		if (sslContext == null) {
+		if (hostnameMap.isEmpty()) {
 			return super.createSSLEngine();
 		}
-		SSLEngine engine = sslContext.createSSLEngine();
+		SSLEngine engine = getSSLContext().createSSLEngine();
 		engine.setUseClientMode(false);
 		SSLParameters sslp = new SSLParameters();
 		sslp.setNeedClientAuth(false);
