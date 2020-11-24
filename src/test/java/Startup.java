@@ -16,6 +16,7 @@ public class Startup {
 		connector.setSecure(true);
 		connector.setProperty("SSLEnabled", "true");
 		connector.setProperty("sslProtocol", "TLS");
+		connector.setProperty("sslEnabledProtocols", "SSLv2Hello,TLSv1,TLSv1.1,TLSv1.2");
 		connector.setProperty("dosPeriod", "60");
 		connector.setProperty("dosRequests", "300");
 		connector.setProperty("dosConnections", "60");

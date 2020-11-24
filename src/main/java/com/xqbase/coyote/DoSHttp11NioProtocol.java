@@ -150,7 +150,6 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			}
 			for (String hostname : hostnames) {
 				Object[] pair = getPair(hostname);
-				// TODO Test Date
 				if (pair[2] == null || ((Date) pair[2]).before(cert.getNotAfter())) {
 					if (key != null) {
 						pair[0] = key;
@@ -280,7 +279,10 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 				Object[] pair = (Object[]) ssle.getSession().
 						getValue(DoSNioEndpoint.PAIR);
 				if (pair == null) {
-					return null;
+					pair = dos.hostnameMap.get(dos.defaultHostname);
+					if (pair == null) {
+						return null;
+					}
 				}
 				pair_.set(pair);
 				return "RSA";
