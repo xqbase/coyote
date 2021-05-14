@@ -285,18 +285,21 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 					}
 				}
 				pair_.set(pair);
+				log.info("DEBUG-chooseEngineServerAlias: " + Thread.currentThread());
 				return "RSA";
 			}
 
 			@Override
 			public PrivateKey getPrivateKey(String keyType) {
 				// Step 2.2 Handshake: Private Key, same thread as step 2.1
+				log.info("DEBUG-getPrivateKey: " + Thread.currentThread() + " " + keyType);
 				return (PrivateKey) pair_.get()[0];
 			}
 
 			@Override
 			public X509Certificate[] getCertificateChain(String keyType) {
 				// Step 2.3 Handshake: Certificate Chain, same thread as step 2.1
+				log.info("DEBUG-getCertificateChain: " + Thread.currentThread() + " " + keyType);
 				return (X509Certificate[]) pair_.get()[1];
 			}
 
@@ -313,12 +316,16 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			@Override
 			public String chooseServerAlias(String keyType,
 					Principal[] issuers, Socket socket) {
+				log.info("DEBUG-chooseServerAlias: " + Thread.currentThread() +
+						" " + keyType + " " + socket.getRemoteSocketAddress());
 				throw new UnsupportedOperationException();
 			}
 
 			@Override
 			public String chooseClientAlias(String[] keyType,
 					Principal[] issuers, Socket socket) {
+				log.info("DEBUG-chooseServerAlias: " + Thread.currentThread() +
+						" " + keyType + " " + socket.getRemoteSocketAddress());
 				throw new UnsupportedOperationException();
 			}
 		}}, DEFAULT_TRUST_MANAGERS, null);
