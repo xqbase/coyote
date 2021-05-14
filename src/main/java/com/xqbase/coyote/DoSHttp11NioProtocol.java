@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
@@ -268,6 +269,12 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		SSLContext sslContext = SSLContext.getInstance("TLS");
 		sslContext.init(new X509ExtendedKeyManager[] {new X509ExtendedKeyManager() {
 			private ThreadLocal<Object[]> pair_ = new ThreadLocal<>();
+			private ThreadLocal<AtomicInteger> count_ = new ThreadLocal<AtomicInteger>() {
+				@Override
+				protected AtomicInteger initialValue() {
+					return new AtomicInteger(0);
+				}
+			};
 
 			@Override
 			public String chooseEngineServerAlias(String keyType,
@@ -285,18 +292,33 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 					}
 				}
 				pair_.set(pair);
+				int count = count_.get().getAndAdd(2);
+				if (count != 0) {
+					log.info("DEBUG-chooseEngineServerAlias: " +
+							Thread.currentThread() + " " + count);
+				}
 				return "RSA";
 			}
 
 			@Override
 			public PrivateKey getPrivateKey(String keyType) {
 				// Step 2.2 Handshake: Private Key, same thread as step 2.1
+				int count = count_.get().decrementAndGet();
+				if (count != 1) {
+					log.info("DEBUG-getPrivateKey: " +
+							Thread.currentThread() + " " + count + " " + keyType);
+				}
 				return (PrivateKey) pair_.get()[0];
 			}
 
 			@Override
 			public X509Certificate[] getCertificateChain(String keyType) {
 				// Step 2.3 Handshake: Certificate Chain, same thread as step 2.1
+				int count = count_.get().decrementAndGet();
+				if (count != 0) {
+					log.info("DEBUG-getCertificateChain: " +
+							Thread.currentThread() + " " + count + " " + keyType);
+				}
 				return (X509Certificate[]) pair_.get()[1];
 			}
 
@@ -313,12 +335,16 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			@Override
 			public String chooseServerAlias(String keyType,
 					Principal[] issuers, Socket socket) {
+				log.info("DEBUG-chooseServerAlias: " + Thread.currentThread() +
+						" " + keyType + " " + socket.getRemoteSocketAddress());
 				throw new UnsupportedOperationException();
 			}
 
 			@Override
 			public String chooseClientAlias(String[] keyType,
 					Principal[] issuers, Socket socket) {
+				log.info("DEBUG-chooseServerAlias: " + Thread.currentThread() +
+						" " + keyType + " " + socket.getRemoteSocketAddress());
 				throw new UnsupportedOperationException();
 			}
 		}}, DEFAULT_TRUST_MANAGERS, null);
