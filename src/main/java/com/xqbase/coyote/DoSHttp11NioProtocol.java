@@ -39,7 +39,9 @@ import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.net.NioEndpoint;
 
+import sun.security.util.DerOutputStream;
 import sun.security.util.DerValue;
+import sun.security.x509.AlgorithmId;
 import sun.security.x509.DNSName;
 import sun.security.x509.GeneralName;
 import sun.security.x509.GeneralNames;
@@ -219,19 +221,36 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 						generateCertificates(filename);
 						break;
 					}
+					boolean rsa = false;
 					StringBuilder sb = new StringBuilder();
-					String line;
-					while ((line = in.readLine()) != null) {
+					String line = head;
+					do {
 						// TODO Skip "Bag Attributes" PEM header
-						// TODO Support -----BEGIN RSA PPRIVATE KEY-----
-						if (!line.equals("-----BEGIN PRIVATE KEY-----") &&
+						if (line.equals("-----BEGIN RSA PRIVATE KEY-----")) {
+							rsa = true;
+						} else if (!line.equals("-----END RSA PRIVATE KEY-----") &&
+								!line.equals("-----BEGIN PRIVATE KEY-----") &&
 								!line.equals("-----END PRIVATE KEY-----")) {
 							sb.append(line);
 						}
+						line = in.readLine();
+					} while (line != null);
+					byte[] encodedKey = Base64.getDecoder().decode(sb.toString());
+					if (rsa) {
+						DerOutputStream alg = new DerOutputStream();
+						alg.putOID(AlgorithmId.RSAEncryption_oid);
+						alg.putNull();
+						DerOutputStream seq = new DerOutputStream();
+						seq.putInteger(0);
+						seq.write(DerValue.tag_Sequence, alg);
+						seq.putOctetString(encodedKey);
+						try (DerOutputStream pkcs8 = new DerOutputStream()) {
+							pkcs8.write(DerValue.tag_Sequence, seq);
+							encodedKey = pkcs8.toByteArray();
+						}
 					}
 					PrivateKey key = kf.
-							generatePrivate(new PKCS8EncodedKeySpec(Base64.
-							getDecoder().decode(sb.toString())));
+							generatePrivate(new PKCS8EncodedKeySpec(encodedKey));
 					if (!(key instanceof RSAKey)) {
 						log.warn("Not an RSA key in file " + filename);
 						break;
