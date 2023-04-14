@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.xqbase</groupId>
 	<artifactId>xqbase-coyote</artifactId>
-	<version>0.2.0</version>
+	<version>0.2.1</version>
 	<packaging>jar</packaging>
 	<name>XQBase Coyote</name>
 	<description>DoS Defense and SNI-Support ProtocolHandler for Apache Coyote</description>

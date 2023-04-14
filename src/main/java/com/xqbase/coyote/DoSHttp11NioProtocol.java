@@ -24,7 +24,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.TreeSet;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
@@ -90,9 +89,6 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		}
 	}
 
-	private HashMap<BigInteger, PrivateKey> keyMap = new HashMap<>();
-	private HashMap<BigInteger, HashSet<String>> hostnamesMap = new HashMap<>();
-
 	DoSNioEndpoint dos;
 
 	public DoSHttp11NioProtocol() {
@@ -146,17 +142,9 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			if (hostnames.isEmpty()) {
 				return;
 			}
-			BigInteger modulus = ((RSAKey) cert.getPublicKey()).getModulus();
-			PrivateKey key = keyMap.get(modulus);
-			if (key == null) {
-				hostnamesMap.put(modulus, hostnames);
-			}
 			for (String hostname : hostnames) {
 				Object[] pair = getPair(hostname);
 				if (pair[2] == null || ((Date) pair[2]).before(cert.getNotAfter())) {
-					if (key != null) {
-						pair[0] = key;
-					}
 					pair[1] = chain;
 					pair[2] = cert.getNotAfter();
 				}
@@ -200,6 +188,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		}
 		log.info("keystorePath = " + keystorePath);
 		// First file by name as default certificate
+		HashMap<BigInteger, PrivateKey> keyMap = new HashMap<>();
 		for (String name : new TreeSet<>(Arrays.asList(keystoreDir.list()))) {
 			if (name.length() < 4) {
 				continue;
@@ -255,15 +244,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 						log.warn("Not an RSA key in file " + filename);
 						break;
 					}
-					BigInteger modulus = ((RSAKey) key).getModulus();
-					HashSet<String> hostnames = hostnamesMap.get(modulus);
-					if (hostnames == null) {
-						keyMap.put(modulus, key);
-					} else {
-						for (String hostname : hostnames) {
-							getPair(hostname)[0] = key;
-						}
-					}
+					keyMap.put(((RSAKey) key).getModulus(), key);
 				} catch (GeneralSecurityException |
 						IOException | IllegalArgumentException e) {
 					log.error("Failed to read key file " + filename, e);
@@ -272,14 +253,23 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			default:
 			}
 		}
-		// Remove unpaired
+		// Pair
 		Iterator<Map.Entry<String, Object[]>> hostnames =
 				dos.hostnameMap.entrySet().iterator();
 		while (hostnames.hasNext()) {
 			Object[] pair = hostnames.next().getValue();
-			if (pair[0] == null || pair[1] == null) {
+			PrivateKey key = keyMap.get(((RSAKey)
+					((X509Certificate[]) pair[1])[0].getPublicKey()).getModulus());
+			if (key == null) {
 				hostnames.remove();
+			} else {
+				pair[0] = key;
 			}
+		}
+		log.info("serverNames = " + dos.hostnameMap.keySet());
+		if (dos.defaultHostname != null &&
+				!dos.hostnameMap.containsKey(dos.defaultHostname)) {
+			dos.defaultHostname = null;
 		}
 		if (dos.hostnameMap.isEmpty()) {
 			super.init();
@@ -287,58 +277,27 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		}
 		SSLContext sslContext = SSLContext.getInstance("TLS");
 		sslContext.init(new X509ExtendedKeyManager[] {new X509ExtendedKeyManager() {
-			private ThreadLocal<Object[]> pair_ = new ThreadLocal<>();
-			private ThreadLocal<AtomicInteger> count_ = new ThreadLocal<AtomicInteger>() {
-				@Override
-				protected AtomicInteger initialValue() {
-					return new AtomicInteger(0);
-				}
-			};
-
 			@Override
 			public String chooseEngineServerAlias(String keyType,
 					Principal[] issuers, SSLEngine ssle) {
-				// Step 2.1 Handshake: Key Type
 				if (!"RSA".equals(keyType)) {
 					return null;
 				}
-				Object[] pair = (Object[]) ssle.getSession().
-						getValue(DoSNioEndpoint.PAIR);
-				if (pair == null) {
-					pair = dos.hostnameMap.get(dos.defaultHostname);
-					if (pair == null) {
-						return null;
-					}
-				}
-				pair_.set(pair);
-				int count = count_.get().getAndAdd(2);
-				if (count != 0) {
-					log.info("DEBUG-chooseEngineServerAlias: " +
-							Thread.currentThread() + " " + count);
-				}
-				return "RSA";
+				// Step 2.1 Handshake: Alias
+				String alias = (String) ssle.getSession().getValue(DoSNioEndpoint.ALIAS);
+				return alias == null ? dos.defaultHostname : alias;
 			}
 
 			@Override
-			public PrivateKey getPrivateKey(String keyType) {
-				// Step 2.2 Handshake: Private Key, same thread as step 2.1
-				int count = count_.get().decrementAndGet();
-				if (count != 1) {
-					log.info("DEBUG-getPrivateKey: " +
-							Thread.currentThread() + " " + count + " " + keyType);
-				}
-				return (PrivateKey) pair_.get()[0];
+			public PrivateKey getPrivateKey(String alias) {
+				// Step 2.2 Handshake: Private Key
+				return (PrivateKey) dos.hostnameMap.get(alias)[0];
 			}
 
 			@Override
-			public X509Certificate[] getCertificateChain(String keyType) {
-				// Step 2.3 Handshake: Certificate Chain, same thread as step 2.1
-				int count = count_.get().decrementAndGet();
-				if (count != 0) {
-					log.info("DEBUG-getCertificateChain: " +
-							Thread.currentThread() + " " + count + " " + keyType);
-				}
-				return (X509Certificate[]) pair_.get()[1];
+			public X509Certificate[] getCertificateChain(String alias) {
+				// Step 2.3 Handshake: Certificate Chain
+				return (X509Certificate[]) dos.hostnameMap.get(alias)[1];
 			}
 
 			@Override
@@ -354,16 +313,12 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			@Override
 			public String chooseServerAlias(String keyType,
 					Principal[] issuers, Socket socket) {
-				log.info("DEBUG-chooseServerAlias: " + Thread.currentThread() +
-						" " + keyType + " " + socket.getRemoteSocketAddress());
 				throw new UnsupportedOperationException();
 			}
 
 			@Override
 			public String chooseClientAlias(String[] keyType,
 					Principal[] issuers, Socket socket) {
-				log.info("DEBUG-chooseServerAlias: " + Thread.currentThread() +
-						" " + keyType + " " + socket.getRemoteSocketAddress());
 				throw new UnsupportedOperationException();
 			}
 		}}, DEFAULT_TRUST_MANAGERS, null);
@@ -374,8 +329,6 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 	@Override
 	public void destroy() {
 		super.destroy();
-		keyMap.clear();
-		hostnamesMap.clear();
 		dos.hostnameMap.clear();
 		dos.defaultHostname = null;
 		log.info("DoSHttp11NioProtocol Destroyed");

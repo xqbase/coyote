@@ -26,7 +26,7 @@ import com.xqbase.coyote.util.concurrent.Count;
 import com.xqbase.coyote.util.concurrent.CountMap;
 
 public class DoSNioEndpoint extends NioEndpoint {
-	static final String PAIR = DoSNioEndpoint.class.getName() + ".PAIR";
+	static final String ALIAS = DoSNioEndpoint.class.getName() + ".ALIAS";
 
 	static Log log = LogFactory.getLog(DoSNioEndpoint.class);
 
@@ -199,20 +199,23 @@ public class DoSNioEndpoint extends NioEndpoint {
 			public boolean matches(SNIServerName serverName) {
 				// Step 1: SNI Matching (Check Client Hello)
 				String hostname = new String(serverName.getEncoded());
-				Object[] pair = hostnameMap.get(hostname);
-				if (pair == null) {
+				if (!hostnameMap.containsKey(hostname)) {
 					int dot = hostname.indexOf('.');
 					if (dot >= 0) {
-						pair = hostnameMap.get("*" + hostname.substring(dot));
-					}
-					if (pair == null) {
-						pair = hostnameMap.get(defaultHostname);
-						if (pair == null) {
-							return false;
+						hostname = "*" + hostname.substring(dot);
+						if (!hostnameMap.containsKey(hostname)) {
+							log.warn("Unmatched server name: " + hostname);
+							hostname = defaultHostname;
 						}
+					} else {
+						log.warn("Unmatched server name: " + hostname);
+						hostname = defaultHostname;
+					}
+					if (hostname == null) {
+						return false;
 					}
 				}
-				engine.getSession().putValue(PAIR, pair);
+				engine.getSession().putValue(ALIAS, hostname);
 				return true;
 			}
 		}));
