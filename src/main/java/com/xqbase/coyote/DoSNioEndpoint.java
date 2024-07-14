@@ -14,6 +14,7 @@ import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLSession;
 
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
@@ -27,6 +28,7 @@ import com.xqbase.coyote.util.concurrent.CountMap;
 
 public class DoSNioEndpoint extends NioEndpoint {
 	static final String ALIAS = DoSNioEndpoint.class.getName() + ".ALIAS";
+	static final String REMOTE = DoSNioEndpoint.class.getName() + ".REMOTE";
 
 	static Log log = LogFactory.getLog(DoSNioEndpoint.class);
 
@@ -82,6 +84,8 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}
 	}
 
+	private ThreadLocal<String> remote = new ThreadLocal<>();
+
 	@Override
 	protected boolean setSocketOptions(SocketChannel socket) {
 		long now = System.currentTimeMillis();
@@ -105,6 +109,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 			return false;
 		}
 
+		remote.set(ip);
 		return super.setSocketOptions(socket);
 	}
 
@@ -183,8 +188,11 @@ public class DoSNioEndpoint extends NioEndpoint {
 		if (hostnameMap.isEmpty()) {
 			return super.createSSLEngine();
 		}
-		SSLEngine engine = getSSLContext().createSSLEngine();
-		engine.setUseClientMode(false);
+		SSLEngine ssle = getSSLContext().createSSLEngine();
+		SSLSession ssls = ssle.getSession();
+		ssls.removeValue(ALIAS);
+		ssls.putValue(REMOTE, remote.get());
+		ssle.setUseClientMode(false);
 		SSLParameters sslp = new SSLParameters();
 		sslp.setNeedClientAuth(false);
 		sslp.setWantClientAuth(false);
@@ -199,6 +207,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 			public boolean matches(SNIServerName serverName) {
 				// Step 1: SNI Matching (Check Client Hello)
 				String hostname = new String(serverName.getEncoded());
+				log.debug("1 " + hostname + ", " + ssls.getValue(REMOTE));
 				if (!hostnameMap.containsKey(hostname)) {
 					int dot = hostname.indexOf('.');
 					if (dot >= 0) {
@@ -215,12 +224,12 @@ public class DoSNioEndpoint extends NioEndpoint {
 						return false;
 					}
 				}
-				engine.getSession().putValue(ALIAS, hostname);
+				ssls.putValue(ALIAS, hostname);
 				return true;
 			}
 		}));
-		engine.setSSLParameters(sslp);
-		configureUseServerCipherSuitesOrder(engine);
-        return engine;
+		ssle.setSSLParameters(sslp);
+		configureUseServerCipherSuitesOrder(ssle);
+        return ssle;
 	}
 }

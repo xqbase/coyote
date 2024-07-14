@@ -27,6 +27,7 @@ import java.util.TreeSet;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLSession;
 import javax.net.ssl.X509ExtendedKeyManager;
 import javax.net.ssl.X509TrustManager;
 
@@ -271,6 +272,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 				!dos.hostnameMap.containsKey(dos.defaultHostname)) {
 			dos.defaultHostname = null;
 		}
+		log.info("defaultHostname = " + dos.defaultHostname);
 		if (dos.hostnameMap.isEmpty()) {
 			super.init();
 			return;
@@ -280,11 +282,14 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			@Override
 			public String chooseEngineServerAlias(String keyType,
 					Principal[] issuers, SSLEngine ssle) {
+				// Step 2.1 Handshake: Alias
+				SSLSession ssls = ssle.getSession();
+				String alias = (String) ssls.getValue(DoSNioEndpoint.ALIAS);
+				log.debug("2.1 " + alias + ", " + ssls.getValue(DoSNioEndpoint.REMOTE));
 				if (!"RSA".equals(keyType)) {
+					log.debug("2.1 " + keyType + " not supported");
 					return null;
 				}
-				// Step 2.1 Handshake: Alias
-				String alias = (String) ssle.getSession().getValue(DoSNioEndpoint.ALIAS);
 				return alias == null ? dos.defaultHostname : alias;
 			}
 
