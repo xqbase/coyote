@@ -207,17 +207,19 @@ public class DoSNioEndpoint extends NioEndpoint {
 			public boolean matches(SNIServerName serverName) {
 				// Step 1: SNI Matching (Check Client Hello)
 				String hostname = new String(serverName.getEncoded());
-				log.debug("1 " + hostname + ", " + ssls.getValue(REMOTE));
+				String remote_ = (String) ssls.getValue(REMOTE);
+				log.debug("1 " + hostname + ", " + remote_);
 				if (!hostnameMap.containsKey(hostname)) {
 					int dot = hostname.indexOf('.');
 					if (dot >= 0) {
 						hostname = "*" + hostname.substring(dot);
 						if (!hostnameMap.containsKey(hostname)) {
-							log.warn("Unmatched server name: " + hostname);
+							log.debug("Unmatched serverName: " +
+									new String(serverName.getEncoded()) + ", " + remote_);
 							hostname = defaultHostname;
 						}
 					} else {
-						log.warn("Unmatched server name: " + hostname);
+						log.debug("Unmatched serverName: " + hostname + ", " + remote_);
 						hostname = defaultHostname;
 					}
 					if (hostname == null) {
