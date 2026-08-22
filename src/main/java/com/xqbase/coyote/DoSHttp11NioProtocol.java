@@ -7,6 +7,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.math.BigInteger;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
@@ -16,12 +17,14 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.RSAKey;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 
@@ -38,6 +41,8 @@ import org.apache.coyote.http11.Http11NioProtocol;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.net.NioEndpoint;
+
+import com.xqbase.metric.client.MetricClient;
 
 import sun.security.util.DerOutputStream;
 import sun.security.util.DerValue;
@@ -91,6 +96,8 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 	}
 
 	DoSNioEndpoint dos;
+
+	private String metricCollectors = null;
 
 	public DoSHttp11NioProtocol() {
 		endpoint = new DoSNioEndpoint();
@@ -170,9 +177,28 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		dos.connections = parseInt((String) connector.
 				getProperty("dosConnections"), 60);
 		port = connector.getPort();
+		// Metric
+		metricCollectors = (String) connector.getProperty("metricCollectors");
+		if (metricCollectors != null) {
+			List<InetSocketAddress> addrs = new ArrayList<>();
+			for (String s : metricCollectors.split("[,;]")) {
+				String[] ss = s.split("[:/]");
+				if (ss.length > 1) {
+					try {
+						addrs.add(new InetSocketAddress(ss[0],
+								Integer.parseInt(ss[1])));
+					} catch (NumberFormatException e) {
+						// Ignored
+					}
+				}
+			}
+			MetricClient.startup(addrs.toArray(new InetSocketAddress[0]));
+		}
 		log.info("DoSHttp11NioProtocol Initialized with period=" +
 				dos.period / 1000 + "/requests=" + dos.requests +
-				"/connections=" + dos.connections + " on port " + port);
+				"/connections=" + dos.connections + "/metricCollectors=" +
+				metricCollectors + " on port " + port);
+
 		// Load SNI property "keystorePath"
 		String keystorePath = (String) connector.getProperty("keystorePath");
 		if (keystorePath == null) {
@@ -334,6 +360,10 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 	@Override
 	public void destroy() {
 		super.destroy();
+		if (metricCollectors != null) {
+			MetricClient.shutdown();
+			metricCollectors = null;
+		}
 		dos.hostnameMap.clear();
 		dos.defaultHostname = null;
 		log.info("DoSHttp11NioProtocol Destroyed");

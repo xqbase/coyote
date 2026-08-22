@@ -25,6 +25,7 @@ import org.apache.tomcat.util.net.jsse.JSSESocketFactory;
 
 import com.xqbase.coyote.util.concurrent.Count;
 import com.xqbase.coyote.util.concurrent.CountMap;
+import com.xqbase.metric.common.Metric;
 
 public class DoSNioEndpoint extends NioEndpoint {
 	static final String ALIAS = DoSNioEndpoint.class.getName() + ".ALIAS";
@@ -94,6 +95,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 				accessed.compareAndSet(accessed_, now)) {
 			requestsMap.clear();
 		}
+		Metric.put("xqbase-coyote.request", 1, "port", "" + getPort());
 
 		String ip = getRemoteAddr(socket);
 		Count count = requestsMap.acquire(ip);
