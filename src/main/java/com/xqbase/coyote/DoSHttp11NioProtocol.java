@@ -16,14 +16,12 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.RSAKey;
 import java.security.spec.PKCS8EncodedKeySpec;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.TreeSet;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
@@ -123,9 +121,6 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 					getSubjectX500Principal().getName()).getCommonName();
 			if (cn != null) {
 				hostnames.add(cn);
-				if (dos.defaultHostname == null) {
-					dos.defaultHostname = cn;
-				}
 			}
 			byte[] subAltName = cert.getExtensionValue("2.5.29.17");
 			if (subAltName != null) {
@@ -188,9 +183,8 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			return;
 		}
 		log.info("keystorePath = " + keystorePath);
-		// First file by name as default certificate
 		HashMap<BigInteger, PrivateKey> keyMap = new HashMap<>();
-		for (String name : new TreeSet<>(Arrays.asList(keystoreDir.list()))) {
+		for (String name : keystoreDir.list()) {
 			if (name.length() < 4) {
 				continue;
 			}
@@ -268,15 +262,16 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			}
 		}
 		log.info("serverNames = " + dos.hostnameMap.keySet());
+		if (dos.hostnameMap.isEmpty()) {
+			super.init();
+			return;
+		}
+		dos.defaultHostname = (String) connector.getProperty("defaultHostname");
 		if (dos.defaultHostname != null &&
 				!dos.hostnameMap.containsKey(dos.defaultHostname)) {
 			dos.defaultHostname = null;
 		}
 		log.info("defaultHostname = " + dos.defaultHostname);
-		if (dos.hostnameMap.isEmpty()) {
-			super.init();
-			return;
-		}
 		SSLContext sslContext = SSLContext.getInstance("TLS");
 		sslContext.init(new X509ExtendedKeyManager[] {new X509ExtendedKeyManager() {
 			@Override
