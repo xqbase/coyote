@@ -23,6 +23,7 @@ import org.apache.tomcat.util.net.NioEndpoint;
 import org.apache.tomcat.util.net.SocketStatus;
 import org.apache.tomcat.util.net.jsse.JSSESocketFactory;
 
+import com.xqbase.coyote.util.TimeoutMap;
 import com.xqbase.coyote.util.concurrent.Count;
 import com.xqbase.coyote.util.concurrent.CountMap;
 import com.xqbase.metric.common.Metric;
@@ -85,6 +86,27 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}
 	}
 
+	private static TimeoutMap<String, Boolean> timeoutMap = new TimeoutMap<>(600_000, 1000);
+
+	public static void block(String ip) {
+		if (ip == null) {
+			return;
+		}
+		int dot = ip.lastIndexOf('.');
+		if (dot < 0) {
+			log.warn("Invalid IP to block: " + ip);
+			return;
+		}
+		String ip3 = ip.substring(0, dot);
+		timeoutMap.expireAndPut(ip3, Boolean.TRUE);
+		dot = ip3.lastIndexOf('.');
+		if (dot < 0) {
+			log.warn("Invalid IP to block: " + ip);
+		} else {
+			Metric.put("xqbase-coyote.block", 1, "ip_range", ip3.substring(0, dot));
+		}
+	}
+
 	private ThreadLocal<String> remote = new ThreadLocal<>();
 
 	@Override
@@ -98,6 +120,22 @@ public class DoSNioEndpoint extends NioEndpoint {
 		Metric.put("xqbase-coyote.request", 1, "port", "" + getPort());
 
 		String ip = getRemoteAddr(socket);
+		int dot = ip.lastIndexOf('.');
+		if (dot < 0) {
+			log.warn("Invalid IP to reject: " + ip);
+			return false;
+		}
+		String ip3 = ip.substring(0, dot);
+		if (timeoutMap.expireAndGet(ip3) != null) {
+			dot = ip3.lastIndexOf('.');
+			if (dot < 0) {
+				log.warn("Invalid IP to reject: " + ip);
+			} else {
+				Metric.put("xqbase-coyote.reject", 1, "ip_range", ip3.substring(0, dot));
+			}
+			return false;
+		}
+
 		Count count = requestsMap.acquire(ip);
 		if (count.get() > requests) {
 			log.info("DoS Attack from " + ip + ", requests = " + count);
