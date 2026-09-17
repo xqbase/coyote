@@ -27,7 +27,7 @@ import com.xqbase.coyote.util.concurrent.Count;
 import com.xqbase.coyote.util.concurrent.CountMap;
 
 public class DoSNioEndpoint extends NioEndpoint {
-	static final String ALIAS = DoSNioEndpoint.class.getName() + ".ALIAS";
+	static final String HOSTNAME = DoSNioEndpoint.class.getName() + ".HOSTNAME";
 	static final String REMOTE = DoSNioEndpoint.class.getName() + ".REMOTE";
 
 	static Log log = LogFactory.getLog(DoSNioEndpoint.class);
@@ -115,6 +115,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 
 	CountMap<String> connectionsMap = new CountMap<>();
 	int period = 60, requests = 300, connections = 60;
+	/** hostname -> {rsaPrivateKey, rsaCertChain, ecPrivateKey, ecCertChain} */
 	HashMap<String, Object[]> hostnameMap = new HashMap<>();
 	String defaultHostname = null;
 
@@ -190,7 +191,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}
 		SSLEngine ssle = getSSLContext().createSSLEngine();
 		SSLSession ssls = ssle.getSession();
-		ssls.removeValue(ALIAS);
+		ssls.removeValue(HOSTNAME);
 		ssls.putValue(REMOTE, remote.get());
 		ssle.setUseClientMode(false);
 		SSLParameters sslp = new SSLParameters();
@@ -226,7 +227,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 						return false;
 					}
 				}
-				ssls.putValue(ALIAS, hostname);
+				ssls.putValue(HOSTNAME, hostname);
 				return true;
 			}
 		}));
