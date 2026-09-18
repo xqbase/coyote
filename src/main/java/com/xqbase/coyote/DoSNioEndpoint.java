@@ -233,6 +233,6 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}));
 		ssle.setSSLParameters(sslp);
 		configureUseServerCipherSuitesOrder(ssle);
-        return ssle;
+		return ssle;
 	}
 }
