@@ -13,13 +13,15 @@ import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.Principal;
 import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.Signature;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.security.interfaces.ECKey;
 import java.security.interfaces.RSAKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -42,9 +44,8 @@ import org.apache.tomcat.util.net.NioEndpoint;
 
 import com.xqbase.metric.client.MetricClient;
 
-import sun.security.util.DerOutputStream;
+import sun.security.util.DerInputStream;
 import sun.security.util.DerValue;
-import sun.security.x509.AlgorithmId;
 import sun.security.x509.DNSName;
 import sun.security.x509.GeneralName;
 import sun.security.x509.GeneralNames;
@@ -79,14 +80,15 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		}
 	}
 
-	private static KeyFactory kf;
+	private static KeyFactory kfRsa, kfEc;
 	private static CertificateFactory cf;
 
 	static Log log = LogFactory.getLog(DoSHttp11NioProtocol.class);
 
 	static {
 		try {
-			kf = KeyFactory.getInstance("RSA");
+			kfRsa = KeyFactory.getInstance("RSA");
+			kfEc = KeyFactory.getInstance("EC");
 			cf = CertificateFactory.getInstance("X509");
 		} catch (GeneralSecurityException e) {
 			throw new RuntimeException(e);
@@ -105,11 +107,6 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		setTcpNoDelay(Constants.DEFAULT_TCP_NO_DELAY);
 	}
 
-	private Object[] getPair(String hostname) {
-		return dos.hostnameMap.computeIfAbsent(hostname,
-				k -> new Object[] {null, null, null});
-	}
-
 	private void generateCertificates(String filename) {
 		try (FileInputStream in = new FileInputStream(filename)) {
 			X509Certificate[] chain =
@@ -119,10 +116,6 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 				return;
 			}
 			X509Certificate cert = chain[0];
-			if (!(cert.getPublicKey() instanceof RSAKey)) {
-				log.warn("Not an RSA certificate in file " + filename);
-				return;
-			}
 			HashSet<String> hostnames = new HashSet<>();
 			String cn = new X500Name(cert.
 					getSubjectX500Principal().getName()).getCommonName();
@@ -145,12 +138,14 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			if (hostnames.isEmpty()) {
 				return;
 			}
+			PublicKey key = cert.getPublicKey();
+			boolean ec = key instanceof ECKey;
+			if (!ec && !(key instanceof RSAKey)) {
+				return;
+			}
 			for (String hostname : hostnames) {
-				Object[] pair = getPair(hostname);
-				if (pair[2] == null || ((Date) pair[2]).before(cert.getNotAfter())) {
-					pair[1] = chain;
-					pair[2] = cert.getNotAfter();
-				}
+				dos.hostnameMap.computeIfAbsent(hostname,
+						k -> new Object[] {null, null, null, null})[ec ? 3 : 1] = chain;
 			}
 		} catch (GeneralSecurityException | IOException e) {
 			log.error("Failed to read certificate file " + filename, e);
@@ -209,7 +204,10 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 			return;
 		}
 		log.info("keystorePath = " + keystorePath);
-		HashMap<BigInteger, PrivateKey> keyMap = new HashMap<>();
+		HashMap<BigInteger, PrivateKey> rsaKeyMap = new HashMap<>();
+		ArrayList<Object[]> ecKeys = new ArrayList<>();
+		byte[] empty = new byte[0];
+		Signature signature = Signature.getInstance("SHA256withECDSA");
 		for (String name : keystoreDir.list()) {
 			if (name.length() < 4) {
 				continue;
@@ -231,41 +229,37 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 						generateCertificates(filename);
 						break;
 					}
-					boolean rsa = false;
 					StringBuilder sb = new StringBuilder();
 					String line = head;
 					do {
-						// TODO Skip "Bag Attributes" PEM header
-						if (line.equals("-----BEGIN RSA PRIVATE KEY-----")) {
-							rsa = true;
-						} else if (!line.equals("-----END RSA PRIVATE KEY-----") &&
-								!line.equals("-----BEGIN PRIVATE KEY-----") &&
+						if (!line.equals("-----BEGIN PRIVATE KEY-----") &&
 								!line.equals("-----END PRIVATE KEY-----")) {
 							sb.append(line);
 						}
 						line = in.readLine();
 					} while (line != null);
 					byte[] encodedKey = Base64.getDecoder().decode(sb.toString());
-					if (rsa) {
-						DerOutputStream alg = new DerOutputStream();
-						alg.putOID(AlgorithmId.RSAEncryption_oid);
-						alg.putNull();
-						DerOutputStream seq = new DerOutputStream();
-						seq.putInteger(0);
-						seq.write(DerValue.tag_Sequence, alg);
-						seq.putOctetString(encodedKey);
-						try (DerOutputStream pkcs8 = new DerOutputStream()) {
-							pkcs8.write(DerValue.tag_Sequence, seq);
-							encodedKey = pkcs8.toByteArray();
-						}
-					}
-					PrivateKey key = kf.
-							generatePrivate(new PKCS8EncodedKeySpec(encodedKey));
-					if (!(key instanceof RSAKey)) {
-						log.warn("Not an RSA key in file " + filename);
+					DerInputStream der = new DerInputStream(encodedKey);
+					DerValue[] seq = der.getSequence(2);
+					if (seq.length < 2) {
+						log.warn("Invalid PKCS8: " + filename);
 						break;
 					}
-					keyMap.put(((RSAKey) key).getModulus(), key);
+					PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(encodedKey);
+					PrivateKey key;
+					switch (seq[1].toDerInputStream().getOID().toString()) {
+					case "1.2.840.113549.1.1.1":
+						key = kfRsa.generatePrivate(keySpec);
+						rsaKeyMap.put(((RSAKey) key).getModulus(), key);
+						break;
+					case "1.2.840.10045.2.1":
+						key = kfEc.generatePrivate(keySpec);
+						signature.initSign(key);
+						signature.update(empty);
+						ecKeys.add(new Object[] {key, signature.sign()});
+						break;
+					default:
+					}
 				} catch (GeneralSecurityException |
 						IOException | IllegalArgumentException e) {
 					log.error("Failed to read key file " + filename, e);
@@ -278,13 +272,22 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 		Iterator<Map.Entry<String, Object[]>> hostnames =
 				dos.hostnameMap.entrySet().iterator();
 		while (hostnames.hasNext()) {
-			Object[] pair = hostnames.next().getValue();
-			PrivateKey key = keyMap.get(((RSAKey)
-					((X509Certificate[]) pair[1])[0].getPublicKey()).getModulus());
-			if (key == null) {
+			Object[] keyAndCert = hostnames.next().getValue();
+			if (keyAndCert[1] != null) {
+				keyAndCert[0] = rsaKeyMap.get(((RSAKey)
+						((X509Certificate[]) keyAndCert[1])[0].getPublicKey()).getModulus());
+			}
+			if (keyAndCert[3] != null) {
+				for (Object[] keyAndSig : ecKeys) {
+					signature.initVerify(((X509Certificate[]) keyAndCert[3])[0].getPublicKey());
+					signature.update(empty);
+					if (signature.verify((byte[]) keyAndSig[1])) {
+						keyAndCert[2] = keyAndSig[0];
+					}
+				}
+			}
+			if (keyAndCert[0] == null && keyAndCert[2] == null) {
 				hostnames.remove();
-			} else {
-				pair[0] = key;
 			}
 		}
 		log.info("serverNames = " + dos.hostnameMap.keySet());
@@ -305,25 +308,51 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 					Principal[] issuers, SSLEngine ssle) {
 				// Step 2.1 Handshake: Alias
 				SSLSession ssls = ssle.getSession();
-				String alias = (String) ssls.getValue(DoSNioEndpoint.ALIAS);
-				log.debug("2.1 " + alias + ", " + ssls.getValue(DoSNioEndpoint.REMOTE));
-				if (!"RSA".equals(keyType)) {
+				String hostname = (String) ssls.getValue(DoSNioEndpoint.HOSTNAME);
+				log.debug("2.1 " + hostname + ", " + ssls.getValue(DoSNioEndpoint.REMOTE));
+				hostname = hostname == null ? dos.defaultHostname : hostname;
+				Object[] keyAndCert = dos.hostnameMap.get(hostname);
+				if (keyAndCert == null) {
+					log.debug("2.1 no key for " + hostname);
+					return null;
+				}
+				if (keyType == null) {
+					log.debug("2.1 keyType == null");
+					return null;
+				}
+				switch (keyType) {
+				case "RSA":
+					if (keyAndCert[0] == null) {
+						log.debug("2.1 no RSA key for " + hostname);
+						return null;
+					}
+					return hostname;
+				case "EC":
+					if (keyAndCert[2] == null) {
+						log.debug("2.1 no EC key for " + hostname);
+						return null;
+					}
+					return "ec_" + hostname;
+				default:
 					log.debug("2.1 " + keyType + " not supported");
 					return null;
 				}
-				return alias == null ? dos.defaultHostname : alias;
 			}
 
 			@Override
 			public PrivateKey getPrivateKey(String alias) {
 				// Step 2.2 Handshake: Private Key
-				return (PrivateKey) dos.hostnameMap.get(alias)[0];
+				boolean ec = alias.startsWith("ec_");
+				return (PrivateKey) dos.hostnameMap.
+						get(ec ? alias.substring(3) : alias)[ec ? 2 : 0];
 			}
 
 			@Override
 			public X509Certificate[] getCertificateChain(String alias) {
 				// Step 2.3 Handshake: Certificate Chain
-				return (X509Certificate[]) dos.hostnameMap.get(alias)[1];
+				boolean ec = alias.startsWith("ec_");
+				return (X509Certificate[]) dos.hostnameMap.
+						get(ec ? alias.substring(3) : alias)[ec ? 3 : 1];
 			}
 
 			@Override

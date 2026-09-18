@@ -11,7 +11,7 @@ import com.xqbase.util.Log;
 public class Startup {
 	public static void main(String[] args) {
 		Connector connector = new Connector(DoSHttp11NioProtocol.class.getName());
-		connector.setPort(443);
+		connector.setPort(8443);
 		connector.setScheme("https");
 		connector.setSecure(true);
 		connector.setProperty("SSLEnabled", "true");
@@ -25,6 +25,7 @@ public class Startup {
 //		connector.setProperty("keystoreType", "PKCS12");
 //		connector.setProperty("keystoreFile",
 //				Conf.getAbsolutePath("../src/test/etc/pki/tomcat/localhost.pfx"));
+		connector.setProperty("defaultHostname", "localhost");
 		Tomcat tomcat = new Tomcat();
 		tomcat.setPort(443);
 		tomcat.getService().addConnector(connector);
