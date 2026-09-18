@@ -309,15 +309,19 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 				// Step 2.1 Handshake: Alias
 				SSLSession ssls = ssle.getSession();
 				String hostname = (String) ssls.getValue(DoSNioEndpoint.HOSTNAME);
-				log.debug("2.1 " + hostname + ", " + ssls.getValue(DoSNioEndpoint.REMOTE));
+				log.debug("2.1 hostname=" + hostname +
+						", remote=" + ssls.getValue(DoSNioEndpoint.REMOTE) +
+						", keyType=" + keyType);
+				if (keyType == null) {
+					return null;
+				}
 				hostname = hostname == null ? dos.defaultHostname : hostname;
+				if (hostname == null) {
+					return null;
+				}
 				Object[] keyAndCert = dos.hostnameMap.get(hostname);
 				if (keyAndCert == null) {
 					log.debug("2.1 no key for " + hostname);
-					return null;
-				}
-				if (keyType == null) {
-					log.debug("2.1 keyType == null");
 					return null;
 				}
 				switch (keyType) {
