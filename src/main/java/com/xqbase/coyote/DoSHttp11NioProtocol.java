@@ -43,6 +43,7 @@ import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.net.NioEndpoint;
 
 import com.xqbase.metric.client.MetricClient;
+import com.xqbase.metric.common.Metric;
 
 import sun.security.util.DerInputStream;
 import sun.security.util.DerValue;
@@ -319,6 +320,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 				if (hostname == null) {
 					return null;
 				}
+				Metric.put("xqbase-coyote.handshake", 1, "hostname", hostname, "key_type", keyType);
 				Object[] keyAndCert = dos.hostnameMap.get(hostname);
 				if (keyAndCert == null) {
 					log.debug("2.1 no key for " + hostname);
