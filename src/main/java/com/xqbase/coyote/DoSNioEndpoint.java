@@ -107,6 +107,18 @@ public class DoSNioEndpoint extends NioEndpoint {
 		}
 	}
 
+	public static boolean shouldReject(String ip) {
+		if (ip == null) {
+			return true;
+		}
+		int dot = ip.lastIndexOf('.');
+		if (dot < 0) {
+			log.warn("Invalid IP to reject: " + ip);
+			return true;
+		}
+		return timeoutMap.expireAndGet(ip.substring(0, dot)) != null;
+	}
+
 	private ThreadLocal<String> remote = new ThreadLocal<>();
 
 	@Override
@@ -120,20 +132,22 @@ public class DoSNioEndpoint extends NioEndpoint {
 		Metric.put("xqbase-coyote.request", 1, "port", "" + getPort());
 
 		String ip = getRemoteAddr(socket);
-		int dot = ip.lastIndexOf('.');
-		if (dot < 0) {
-			log.warn("Invalid IP to reject: " + ip);
-			return false;
-		}
-		String ip3 = ip.substring(0, dot);
-		if (timeoutMap.expireAndGet(ip3) != null) {
-			dot = ip3.lastIndexOf('.');
+		if (enableReject) {
+			int dot = ip.lastIndexOf('.');
 			if (dot < 0) {
 				log.warn("Invalid IP to reject: " + ip);
-			} else {
-				Metric.put("xqbase-coyote.reject", 1, "ip_range", ip3.substring(0, dot));
+				return false;
 			}
-			return false;
+			String ip3 = ip.substring(0, dot);
+			if (timeoutMap.expireAndGet(ip3) != null) {
+				dot = ip3.lastIndexOf('.');
+				if (dot < 0) {
+					log.warn("Invalid IP to reject: " + ip);
+				} else {
+					Metric.put("xqbase-coyote.reject", 1, "ip_range", ip3.substring(0, dot));
+				}
+				return false;
+			}
 		}
 
 		Count count = requestsMap.acquire(ip);
@@ -155,6 +169,7 @@ public class DoSNioEndpoint extends NioEndpoint {
 
 	CountMap<String> connectionsMap = new CountMap<>();
 	int period = 60, requests = 300, connections = 60;
+	boolean enableReject = false;
 	/** hostname -> {rsaPrivateKey, rsaCertChain, ecPrivateKey, ecCertChain} */
 	HashMap<String, Object[]> hostnameMap = new HashMap<>();
 	String defaultHostname = null;

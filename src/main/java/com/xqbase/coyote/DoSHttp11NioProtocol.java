@@ -167,6 +167,7 @@ public class DoSHttp11NioProtocol extends Http11NioProtocol {
 				getProperty("dosRequests"), 300);
 		dos.connections = parseInt((String) connector.
 				getProperty("dosConnections"), 60);
+		dos.enableReject = "true".equals(getProperty("enableReject"));
 		port = connector.getPort();
 		// Metric
 		metricCollectors = (String) connector.getProperty("metricCollectors");
